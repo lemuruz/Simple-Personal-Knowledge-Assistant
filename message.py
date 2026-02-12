@@ -1,11 +1,13 @@
-import ollama,PDFChunking
+import PDFChunking
 from langchain_ollama import ChatOllama
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
-from langchain_classic.chains.retrieval import create_retrieval_chain
-from langchain_classic.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_classic.memory import ConversationBufferMemory
+from langchain_community.chat_message_histories import FileChatMessageHistory
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain_core.documents import Document
+from langchain_core.messages import SystemMessage, HumanMessage
+
 llm = ChatOllama(model="llama3")
 embeddings = OllamaEmbeddings(model="mxbai-embed-large")
 
@@ -13,6 +15,7 @@ embeddings = OllamaEmbeddings(model="mxbai-embed-large")
 FILE_PATH = "cookbook.pdf"
 Database_Directory = "./chroma_db"
 collectionName = FILE_PATH.split('.')[0]
+history = FileChatMessageHistory('.chat_history.json')
 
 pdf_reader = PDFChunking.readPDF(FILE_PATH)
 pdf_reader.PDFChunking(chunkSize=700, overlapSize=100) 
@@ -30,38 +33,33 @@ if vector_store._collection.count() == 0:
 else:
     print("Using existing embeddings...")
 
-# retriever = vector_store.as_retriever()
-# prompt = ChatPromptTemplate.from_template("""
-# You are a professional chef. Answer the user's question based ONLY on the context below.
-                                          
-# <context>
-# {context}
-# </context>
+memory: ConversationBufferMemory = ConversationBufferMemory(
+    memory_key='chat_history',
+    chat_memory=history,
+    return_messages=True
+)
 
-# Question: {input}
-# """)
-# document_chain = create_stuff_documents_chain(llm, prompt)
-# retrieval_chain = create_retrieval_chain(retriever, document_chain)
 print("LangChain Chef is ready!")
 
-# test
-# test_docs = retriever.invoke("Stuffed Potatoes")
-# print(f"Found {len(test_docs)} chunks!")
-# print(f"First chunk content: {test_docs[0].page_content[:100]}...")
-full_prompt = """You are a professional chef. Answer the user's question based ONLY on the context below.                                        
-    <context>
-    {context}
-    </context>
-    Chat History:{chat_history}
-    Question: {user_input}
-    """
-chat_history = []
+prompt = ChatPromptTemplate(
+    input_variables=['content'],
+    messages=[
+        SystemMessage(content='You are a professional chef.'),
+        MessagesPlaceholder(variable_name='chat_history'),
+        HumanMessagePromptTemplate.from_template(
+            "Context:\n{context}\n\nQuestion:\n{user_input}"
+        )
+    ]
+)
+
+
+
 while True:
     user_input = input("You: ")
     if user_input.lower() == "exit": break
 
     
-
+    chat_history = memory.load_memory_variables({})['chat_history']
     if chat_history:
         # last_question = chat_history[-1][0]
         search_query = f"{chat_history} {user_input}"
@@ -74,8 +72,13 @@ while True:
     # This one line does: Embedding -> Searching -> Context Stuffing -> Generating
     # response = retrieval_chain.invoke({"input": user_input})
     # Generate answer (what llm does)
-    response = llm.invoke(full_prompt.format(context=context, user_input=user_input,chat_history=chat_history))
-    chat_history.append((user_input, response.content))
+    chain = prompt | llm
+    response = chain.invoke({
+        "user_input": user_input,
+        "context": context,
+        "chat_history": chat_history
+    })
+    memory.save_context({"content": user_input}, {"content": response.content})
     print("Chef:", response.content)
     # print("Chef:", response['answer'])
 
