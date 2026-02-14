@@ -2,7 +2,6 @@ import PDFChunking
 from langchain_ollama import ChatOllama
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
-from langchain_classic.memory import ConversationBufferMemory
 from langchain_community.chat_message_histories import FileChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain_core.documents import Document
@@ -49,9 +48,10 @@ class AI:
         print("LangChain Chef is ready!")
     
     def generate_response(self, user_input):
-        chat_history = self.memory.load_memory_variables({})['chat_history']
+        chat_history = self.memory.messages if self.memory else None
         if chat_history:
-            search_query = f"{chat_history} {user_input}"
+            history_text = " ".join([m.content for m in chat_history])
+            search_query = f"{history_text} {user_input}"
         else:
             search_query = user_input
         relevant_docs = self.vector_store.similarity_search(search_query, k=6)    
@@ -64,7 +64,8 @@ class AI:
             "context": context,
             "chat_history": chat_history
         })
-        self.memory.save_context({"content": user_input}, {"content": response.content})
+        self.memory.add_user_message(user_input)
+        self.memory.add_ai_message(response.content)
         return response.content
 
 
