@@ -5,7 +5,7 @@ from langchain_ollama import OllamaEmbeddings
 from langchain_community.chat_message_histories import FileChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain_core.documents import Document
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage
 
 
 class AI:
