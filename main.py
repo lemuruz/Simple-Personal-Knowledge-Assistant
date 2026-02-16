@@ -23,7 +23,7 @@ def get_memory(session_id: str):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.AI = message.AI(file_path="cookbook.pdf", db_directory="./chroma_db", role="chef")
+    app.state.AI = message.AI()
     yield
     app.state.AI = None
 app = FastAPI(lifespan=lifespan)

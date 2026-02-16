@@ -12,45 +12,57 @@ from pydantic import BaseModel, Field
 
 class RecipeOutput(BaseModel):
     message: str = Field(..., description="The generated response from the AI Chef.")
+    # source: str = Field(..., description="The source of the information used to generate the response.")
     ingredients: list[str] = Field(..., description="List of ingredients needed for the recipe.")
     instructions: list[str] = Field(..., description="Step-by-step instructions for preparing the dish.") 
     tips_message: str = Field(..., description="Fun tips related to the recipe or cooking in general.")
     
 class AI:
-    def __init__(self, file_path, db_directory,role = ""):
+    def __init__(self):
 
         self.llm = ChatOllama(model="llama3", temperature=0).with_structured_output(RecipeOutput)
         self.embeddings = OllamaEmbeddings(model="mxbai-embed-large")
 
-        self.file_path = file_path
-        self.db_directory = db_directory
-        self.collection_name = file_path.split('.')[0]
+        self.file_path = ["cookbook.pdf","THE LOW-COST COOKBOOK .pdf"]
+        self.db_directory = "./chroma_db"
+        self.role = "chef"
+        self.collection_name = [f.split('.')[0] for f in self.file_path]
         self.history = FileChatMessageHistory('.chat_history.json')
+        
+        self.pdf_reader = [PDFChunking.readPDF(f) for f in self.file_path]
+        
+        for reader in self.pdf_reader:
+            reader.PDFChunking(chunkSize=700, overlapSize=100) 
 
-        self.pdf_reader = PDFChunking.readPDF(file_path)
-        self.pdf_reader.PDFChunking(chunkSize=700, overlapSize=100) 
-
-        documents = [Document(page_content=chunk) for chunk in self.pdf_reader.PDFchunked]
+        documents = []
+        for reader, collection in zip(self.pdf_reader, self.collection_name):
+            documents.extend([Document(
+                page_content=chunk,
+                metadata={"source": f"{collection}"}
+            ) for chunk in reader.PDFchunked])
+            
 
         self.vector_store = Chroma(
-            persist_directory=db_directory, 
+            persist_directory=self.db_directory, 
             embedding_function=self.embeddings,
-            collection_name=self.collection_name
+            collection_name="recipes"
         )
         if self.vector_store._collection.count() == 0:
             print("Embedding new documents...")
-            self.vector_store.add_documents(documents)
+            for doc in documents:
+                self.vector_store.add_documents([doc])
         else:
             print("Using existing embeddings...")
 
         self.memory = None
         self.prompt = ChatPromptTemplate.from_messages([
             SystemMessage(
-                content=f"""You are a professional {role}.
+                content=f"""You are a professional {self.role}.
                 Respond in a friendly, human conversational tone.
 
                 Also return structured recipe data.
 
+    
                 The "message" field should contain a warm, natural explanation or recommendation.
                 The "tips_message" field should explain the tips in a fun,friendly, natural paragraph style.
                 
@@ -73,9 +85,14 @@ class AI:
             search_query = f"{history_text} {user_input}"
         else:
             search_query = user_input
-        relevant_docs = self.vector_store.similarity_search(search_query, k=6)    
-        context = "\n\n".join([doc.page_content for doc in relevant_docs])
-        
+        relevant_docs = self.vector_store.similarity_search(search_query, k=6)   
+        print(f"Found {relevant_docs} relevant documents.")
+        top_source = relevant_docs[0].metadata["source"]
+
+        context = "\n\n".join([
+            f"[SOURCE: {doc.metadata['source']}]\n{doc.page_content}"
+            for doc in relevant_docs
+        ])
         
         chain = self.prompt | self.llm  
         response = chain.invoke({
@@ -86,7 +103,10 @@ class AI:
         self.memory.add_user_message(user_input)
         self.memory.add_ai_message(str(response))
 
-        return response.model_dump()
+        
+        response_dict = response.model_dump()
+        response_dict["source"] = top_source
+        return response_dict
 
 
 

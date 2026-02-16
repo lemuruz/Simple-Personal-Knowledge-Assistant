@@ -1,4 +1,4 @@
-import pypdf,pymupdf 
+import pymupdf 
 
 class readPDF:
     def __init__(self,PDFfile):
@@ -7,9 +7,14 @@ class readPDF:
         # reader = pypdf.PdfReader(PDFfile)
         reader = pymupdf.open(PDFfile)
         # for i in range(0,len(reader.pages)):
-        #     self.PDFtext += reader.pages[i].extract_text()
         for page in reader:
-            self.PDFtext += page.get_text()
+            try:
+                text = page.get_text("text")
+                if text:
+                    self.PDFtext += text
+            except Exception as e:
+                print(f"Skipping problematic page: {e}")
+                
         # self.PDFtext = "".join([p.extract_text() for p in reader.pages])
         self.textlen = len(self.PDFtext)
         self.PDFchunked = []
